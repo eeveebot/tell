@@ -31,10 +31,12 @@ FROM docker.io/node:24-alpine
 
 USER root
 
-# Install Python for better-sqlite3 runtime dependencies
 RUN set -exu \
   && apk add --no-cache \
-    python3
+    bash \
+    make \
+    python3 \
+    g++
 
 USER node
 

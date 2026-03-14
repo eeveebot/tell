@@ -2,6 +2,23 @@
 
 This document provides essential information for agentic coding assistants working with this repository.
 
+## System Requirements
+
+### Python Dependency
+This module requires Python 3.x to be installed for building the `better-sqlite3` native module. The dependency image already includes Python, but local development environments must have Python installed.
+
+On Ubuntu/Debian:
+```bash
+sudo apt-get install python3
+```
+
+On macOS with Homebrew:
+```bash
+brew install python3
+```
+
+On Windows, download from https://www.python.org/downloads/
+
 ## Build/Lint/Test Commands
 
 ### Build Commands
@@ -55,6 +72,13 @@ npx tsc --watch
 ```bash
 # Update core library dependencies
 npm run update-libraries
+```
+
+### Migration Commands
+
+```bash
+# Run database migration
+npm run migrate -- <old-db-path> <new-db-path> [instance-name]
 ```
 
 ## Code Style Guidelines
