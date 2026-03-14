@@ -11,8 +11,8 @@ import Database from 'better-sqlite3';
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
 
-const tellCommandUUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-const rmtellCommandUUID = 'b2c3d4e5-f6a7-8901-bcde-f01234567891';
+const tellCommandUUID = '05bc8f8b-e231-4a8e-a915-1931df95d1fd';
+const rmtellCommandUUID = 'defb7535-aa1c-4fa5-a73a-9b363e497547';
 const tellBroadcastUUID = 'c3d4e5f6-7890-abcd-ef12-34567890abcd';
 const tellBroadcastDisplayName = 'tell';
 
