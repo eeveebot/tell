@@ -181,7 +181,7 @@ const findTellsByNickOrIdentStmt = db!.prepare(`
 `);
 
 const findOutgoingTellsByUserStmt = db!.prepare(`
-  SELECT * FROM tells WHERE fromUser = @user ORDER BY dateSent DESC
+  SELECT * FROM tells WHERE fromUser = @user AND delivered = 0 ORDER BY dateSent DESC
 `);
 
 const findTellByIdStmt = db!.prepare(`
@@ -364,7 +364,9 @@ const tellCommandSub = nats.subscribe(
       const tellId = Math.random().toString(16).substring(2, 10);
 
       // Construct ident from user@userHost if available
-      const constructedIdent = data.userHost ? `${data.user}@${data.userHost}` : data.ident;
+      const constructedIdent = data.userHost
+        ? `${data.user}@${data.userHost}`
+        : data.ident;
 
       // Save the tell to database
       const newTellData = {
@@ -476,7 +478,9 @@ const rmtellCommandSub = nats.subscribe(
       }
 
       // Construct ident from user@userHost if available
-      const constructedIdent = data.userHost ? `${data.user}@${data.userHost}` : data.ident;
+      const constructedIdent = data.userHost
+        ? `${data.user}@${data.userHost}`
+        : data.ident;
 
       log.info('Checking ident for rmtell command', {
         producer: 'tell',
@@ -516,7 +520,7 @@ const rmtellCommandSub = nats.subscribe(
         void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
         return;
       }
-      
+
       log.info('Ident check passed for rmtell command', {
         producer: 'tell',
         currentIdent: constructedIdent,
@@ -568,8 +572,8 @@ const listtellsCommandSub = nats.subscribe(
       });
 
       // Find all outgoing tells from this user
-      const outgoingTells = findOutgoingTellsByUserStmt.all({ 
-        user: data.user 
+      const outgoingTells = findOutgoingTellsByUserStmt.all({
+        user: data.user,
       }) as Array<{
         id: string;
         toUser: string;
@@ -595,13 +599,13 @@ const listtellsCommandSub = nats.subscribe(
       }
 
       let responseText = `${data.user}: Your outgoing tells:\n`;
-      
+
       for (let i = 0; i < outgoingTells.length; i++) {
         const tell = outgoingTells[i];
-        
+
         // Format the time difference
         const timeDiff = formatTimeDifference(tell.dateSent);
-        
+
         responseText += `ID: ${tell.id.substring(0, 8)} To: ${tell.toUser} (${timeDiff} ago): ${tell.message}\n`;
       }
 
@@ -859,8 +863,7 @@ const tellHelp = [
   },
   {
     command: 'list-tells',
-    descr:
-      'List all your outgoing tells',
+    descr: 'List your outstanding (undelivered) tells',
     params: [],
   },
 ];
