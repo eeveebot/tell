@@ -339,13 +339,16 @@ const tellCommandSub = nats.subscribe(
       // Create a unique ID for this tell
       const tellId = `${data.platform}-${data.instance}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+      // Construct ident from user@userHost if available
+      const constructedIdent = data.userHost ? `${data.user}@${data.userHost}` : data.ident;
+
       // Save the tell to database
       const newTellData = {
         id: tellId,
         dateSent: new Date().toISOString(),
         fromConnector: data.replyTo,
         fromChannel: data.channel,
-        fromIdent: data.ident,
+        fromIdent: constructedIdent,
         fromUser: data.user,
         toUser: toUser,
         platform: data.platform,
@@ -358,7 +361,7 @@ const tellCommandSub = nats.subscribe(
       log.info('Saving new tell with ident info', {
         producer: 'tell',
         tellId: tellId,
-        fromIdent: data.ident,
+        fromIdent: constructedIdent,
         fromUser: data.user,
         toUser: toUser,
       });
@@ -448,8 +451,33 @@ const rmtellCommandSub = nats.subscribe(
         return;
       }
 
+      // Construct ident from user@userHost if available
+      const constructedIdent = data.userHost ? `${data.user}@${data.userHost}` : data.ident;
+
+      log.info('Checking ident for rmtell command', {
+        producer: 'tell',
+        currentIdent: constructedIdent,
+        storedIdent: tell.fromIdent,
+        currentUser: data.user,
+        storedUser: tell.fromUser,
+        tellId: tellId,
+        userHost: data.userHost,
+        dataIdent: data.ident,
+      });
+
       // Check if the user is the original sender
-      if (data.ident !== tell.fromIdent) {
+      // Also check if the username matches as a fallback
+      if (constructedIdent !== tell.fromIdent && data.user !== tell.fromUser) {
+        log.info('Ident mismatch in rmtell - access denied', {
+          producer: 'tell',
+          currentIdent: constructedIdent,
+          storedIdent: tell.fromIdent,
+          currentUser: data.user,
+          storedUser: tell.fromUser,
+          tellId: tellId,
+          userHost: data.userHost,
+          dataIdent: data.ident,
+        });
         const errorMsg = {
           channel: data.channel,
           network: data.network,
@@ -464,6 +492,15 @@ const rmtellCommandSub = nats.subscribe(
         void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
         return;
       }
+      
+      log.info('Ident check passed for rmtell command', {
+        producer: 'tell',
+        currentIdent: constructedIdent,
+        storedIdent: tell.fromIdent,
+        currentUser: data.user,
+        storedUser: tell.fromUser,
+        tellId: tellId,
+      });
 
       // Remove the tell
       removeTellByIdStmt.run({ id: tellId });
