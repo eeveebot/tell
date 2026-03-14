@@ -13,6 +13,7 @@ const moduleStartTime = Date.now();
 
 const tellCommandUUID = '05bc8f8b-e231-4a8e-a915-1931df95d1fd';
 const rmtellCommandUUID = 'defb7535-aa1c-4fa5-a73a-9b363e497547';
+const listtellsCommandUUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const tellBroadcastUUID = 'c3d4e5f6-7890-abcd-ef12-34567890abcd';
 const tellBroadcastDisplayName = 'tell';
 
@@ -179,6 +180,10 @@ const findTellsByNickOrIdentStmt = db!.prepare(`
   SELECT * FROM tells WHERE (toUser = @nick OR toUser = @nickIdent) AND delivered = 0 ORDER BY dateSent ASC
 `);
 
+const findOutgoingTellsByUserStmt = db!.prepare(`
+  SELECT * FROM tells WHERE fromUser = @user ORDER BY dateSent DESC
+`);
+
 const findTellByIdStmt = db!.prepare(`
   SELECT * FROM tells WHERE id = @id
 `);
@@ -265,6 +270,21 @@ async function registerTellCommands(): Promise<void> {
     ratelimit: rateLimitConfig,
   };
 
+  // Register list-tells command
+  const listtellsCommandRegistration = {
+    type: 'command.register',
+    commandUUID: listtellsCommandUUID,
+    commandDisplayName: 'list-tells',
+    platform: '.*', // Match all platforms
+    network: '.*', // Match all networks
+    instance: '.*', // Match all instances
+    channel: '.*', // Match all channels
+    user: '.*', // Match all users
+    regex: '^list-tells\\s*', // Match list-tells command at start of line
+    platformPrefixAllowed: true,
+    ratelimit: rateLimitConfig,
+  };
+
   try {
     await nats.publish(
       'command.register',
@@ -274,7 +294,11 @@ async function registerTellCommands(): Promise<void> {
       'command.register',
       JSON.stringify(rmtellCommandRegistration)
     );
-    log.info('Registered tell and rmtell commands with router', {
+    await nats.publish(
+      'command.register',
+      JSON.stringify(listtellsCommandRegistration)
+    );
+    log.info('Registered tell, rmtell, and list-tells commands with router', {
       producer: 'tell',
       ratelimit: rateLimitConfig,
     });
@@ -336,8 +360,8 @@ const tellCommandSub = nats.subscribe(
         // Just store the nick for loose matching
       }
 
-      // Create a unique ID for this tell
-      const tellId = `${data.platform}-${data.instance}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Create a unique ID for this tell (8-character lowercase hex string)
+      const tellId = Math.random().toString(16).substring(2, 10);
 
       // Construct ident from user@userHost if available
       const constructedIdent = data.userHost ? `${data.user}@${data.userHost}` : data.ident;
@@ -528,6 +552,82 @@ const rmtellCommandSub = nats.subscribe(
 );
 natsSubscriptions.push(rmtellCommandSub);
 
+// Subscribe to list-tells command execution messages
+const listtellsCommandSub = nats.subscribe(
+  `command.execute.${listtellsCommandUUID}`,
+  (subject, message) => {
+    try {
+      const data = JSON.parse(message.string());
+      log.info('Received command.execute for list-tells', {
+        producer: 'tell',
+        platform: data.platform,
+        instance: data.instance,
+        channel: data.channel,
+        user: data.user,
+        originalText: data.originalText,
+      });
+
+      // Find all outgoing tells from this user
+      const outgoingTells = findOutgoingTellsByUserStmt.all({ 
+        user: data.user 
+      }) as Array<{
+        id: string;
+        toUser: string;
+        dateSent: string;
+        message: string;
+      }>;
+
+      // Send the list of tells to the user
+      if (outgoingTells.length === 0) {
+        const response = {
+          channel: data.channel,
+          network: data.network,
+          instance: data.instance,
+          platform: data.platform,
+          text: `${data.user}: You have no outgoing tells.`,
+          trace: data.trace,
+          type: 'message.outgoing',
+        };
+
+        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
+        void nats.publish(outgoingTopic, JSON.stringify(response));
+        return;
+      }
+
+      let responseText = `${data.user}: Your outgoing tells:\n`;
+      
+      for (let i = 0; i < outgoingTells.length; i++) {
+        const tell = outgoingTells[i];
+        
+        // Format the time difference
+        const timeDiff = formatTimeDifference(tell.dateSent);
+        
+        responseText += `ID: ${tell.id.substring(0, 8)} To: ${tell.toUser} (${timeDiff} ago): ${tell.message}\n`;
+      }
+
+      // Send the tells to the channel
+      const response = {
+        channel: data.channel,
+        network: data.network,
+        instance: data.instance,
+        platform: data.platform,
+        text: responseText.trim(),
+        trace: data.trace,
+        type: 'message.outgoing',
+      };
+
+      const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
+      void nats.publish(outgoingTopic, JSON.stringify(response));
+    } catch (error) {
+      log.error('Failed to process list-tells command', {
+        producer: 'tell',
+        error: error,
+      });
+    }
+  }
+);
+natsSubscriptions.push(listtellsCommandSub);
+
 // Subscribe to broadcast messages to check for users with pending tells
 const tellBroadcastSub = nats.subscribe(
   `broadcast.message.${tellBroadcastUUID}`,
@@ -647,6 +747,17 @@ const controlSubRegisterCommandRmtell = nats.subscribe(
 );
 natsSubscriptions.push(controlSubRegisterCommandRmtell);
 
+const controlSubRegisterCommandListtells = nats.subscribe(
+  'control.registerCommands.list-tells',
+  () => {
+    log.info('Received control.registerCommands.list-tells control message', {
+      producer: 'tell',
+    });
+    void registerTellCommands();
+  }
+);
+natsSubscriptions.push(controlSubRegisterCommandListtells);
+
 const controlSubRegisterCommandAll = nats.subscribe(
   'control.registerCommands',
   () => {
@@ -745,6 +856,12 @@ const tellHelp = [
         descr: 'ID of the tell to delete',
       },
     ],
+  },
+  {
+    command: 'list-tells',
+    descr:
+      'List all your outgoing tells',
+    params: [],
   },
 ];
 

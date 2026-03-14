@@ -1,6 +1,6 @@
 {
   "name": "@eeveebot/tell",
-  "version": "2.2.14",
+  "version": "2.2.15",
   "description": "tell module for eevee.bot",
   "main": "dist/main.mjs",
   "type": "module",
