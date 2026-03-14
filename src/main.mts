@@ -11,10 +11,10 @@ import Database from 'better-sqlite3';
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
 
-const tellCommandUUID = '05bc8f8b-e231-4a8e-a915-1931df95d1fd';
-const rmtellCommandUUID = 'defb7535-aa1c-4fa5-a73a-9b363e497547';
-const listtellsCommandUUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-const tellBroadcastUUID = 'c3d4e5f6-7890-abcd-ef12-34567890abcd';
+const tellCommandUUID = '8626542f-7154-42ed-8fc4-3817fe912959';
+const rmtellCommandUUID = 'db53b187-1f37-43e9-b9bb-ddaa7b1a1eb8';
+const listtellsCommandUUID = 'bd15d52f-8bbb-4b93-ac4b-4533f65b2062';
+const tellBroadcastUUID = '69b5b61b-2bc8-4d62-95cb-799c24e156d3';
 const tellBroadcastDisplayName = 'tell';
 
 // Rate limit configuration interface
