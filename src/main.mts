@@ -245,7 +245,7 @@ async function registerTellCommands(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: 'tell ', // Match tell command with at least one word after
+    regex: '^tell\\s+', // Match tell command at start of line followed by whitespace
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
@@ -260,7 +260,7 @@ async function registerTellCommands(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: 'rmtell ', // Match rmtell command with at least one word after
+    regex: '^rmtell\\s+', // Match rmtell command at start of line followed by whitespace
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
