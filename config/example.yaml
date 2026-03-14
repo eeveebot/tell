@@ -1,0 +1,11 @@
+# Example tell module configuration
+
+# Rate limit configuration
+ratelimit:
+  mode: drop
+  level: user
+  limit: 5
+  interval: 1m
+
+# Database path (optional, defaults to ./tell.sqlite)
+dbPath: "./tell.sqlite"
