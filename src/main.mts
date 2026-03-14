@@ -273,7 +273,7 @@ const tellCommandSub = nats.subscribe(
 
       // Parse the command: tell <username> <message>
       const parts = data.text.trim().split(/\s+/);
-      if (parts.length < 3) {
+      if (parts.length < 2) {
         const errorMsg = {
           channel: data.channel,
           network: data.network,
@@ -289,8 +289,8 @@ const tellCommandSub = nats.subscribe(
         return;
       }
 
-      const toUser = parts[1].toLowerCase();
-      const messageText = parts.slice(2).join(' ');
+      const toUser = parts[0].toLowerCase();
+      const messageText = parts.slice(1).join(' ');
 
       // Create a unique ID for this tell
       const tellId = `${data.platform}-${data.instance}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -353,7 +353,7 @@ const rmtellCommandSub = nats.subscribe(
 
       // Parse the command: rmtell <id>
       const parts = data.text.trim().split(/\s+/);
-      if (parts.length < 2) {
+      if (parts.length < 1) {
         const errorMsg = {
           channel: data.channel,
           network: data.network,
@@ -369,7 +369,7 @@ const rmtellCommandSub = nats.subscribe(
         return;
       }
 
-      const tellId = parts[1];
+      const tellId = parts[0];
 
       // Find the tell by ID
       const tell = findTellByIdStmt.get({ id: tellId }) as
