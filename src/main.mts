@@ -175,8 +175,8 @@ const addTellStmt = db!.prepare(`
   VALUES (@id, @dateSent, @fromConnector, @fromChannel, @fromIdent, @fromUser, @toUser, @platform, @message, @pm, @delivered, @dateDelivered)
 `);
 
-const findTellsByUserStmt = db!.prepare(`
-  SELECT * FROM tells WHERE toUser = @toUser AND delivered = 0 ORDER BY dateSent ASC
+const findTellsByNickOrIdentStmt = db!.prepare(`
+  SELECT * FROM tells WHERE (toUser = @nick OR toUser = @nickIdent) AND delivered = 0 ORDER BY dateSent ASC
 `);
 
 const findTellByIdStmt = db!.prepare(`
@@ -327,6 +327,14 @@ const tellCommandSub = nats.subscribe(
 
       const toUser = parts[0].toLowerCase();
       const messageText = parts.slice(1).join(' ');
+
+      // If the recipient contains "@", store it as-is (nick@ident format)
+      // Otherwise, store just the nick for loose matching
+      if (toUser.includes('@')) {
+        // Already in nick@ident format
+      } else {
+        // Just store the nick for loose matching
+      }
 
       // Create a unique ID for this tell
       const tellId = `${data.platform}-${data.instance}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -499,8 +507,12 @@ const tellBroadcastSub = nats.subscribe(
 
       // Check if this user has any pending tells
       const lowercaseNick = data.user.toLowerCase();
-      const pendingTells = findTellsByUserStmt.all({
-        toUser: lowercaseNick,
+      const identWithNick = `${lowercaseNick}@${data.ident}`;
+
+      // Check for both nick and nick@ident matches in a single query
+      const pendingTells = findTellsByNickOrIdentStmt.all({
+        nick: lowercaseNick,
+        nickIdent: identWithNick,
       }) as Array<{
         id: string;
         fromUser: string;
