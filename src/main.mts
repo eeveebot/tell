@@ -120,10 +120,18 @@ const tellConfig = loadTellConfig();
 // Initialize database
 function initDatabase(): void {
   try {
-    const dbPath = tellConfig.dbPath || './tell.sqlite';
-    db = new Database(dbPath, {
-      //verbose: console.log
-    });
+    const moduleDataPath = process.env.MODULE_DATA;
+    if (!moduleDataPath) {
+      throw new Error('MODULE_DATA environment variable not set');
+    }
+  
+    // Ensure the directory exists
+    if (!fs.existsSync(moduleDataPath)) {
+      fs.mkdirSync(moduleDataPath, { recursive: true });
+    }
+  
+    const dbPath = `${moduleDataPath}/tell.db`;
+    db = new Database(dbPath);
 
     // Create tables if they don't exist
     db.exec(`
