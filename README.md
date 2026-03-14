@@ -31,6 +31,15 @@ Usage: `rmtell <message-id>`
 
 Example: `rmtell a1b2c3d4-e5f6-7890-abcd-ef1234567890`
 
+## Requirements
+
+This module requires Python to be installed for building the `better-sqlite3` native module. Specifically:
+- Python 3.x
+- Node.js 24+
+- npm
+
+When building with Docker, Python is included in the container image.
+
 ## Migration from Old Version
 
 If you're upgrading from the old eevee.bot tell module, you can migrate your existing data using the migration script:

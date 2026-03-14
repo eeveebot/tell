@@ -5,7 +5,9 @@ USER root
 RUN set -exu \
   && apk add --no-cache \
     bash \
-    make
+    make \
+    python3 \
+    g++
 
 USER node
 
@@ -27,7 +29,15 @@ RUN set -exu \
 
 FROM docker.io/node:24-alpine
 
+USER root
+
+# Install Python for better-sqlite3 runtime dependencies
+RUN set -exu \
+  && apk add --no-cache \
+    python3
+
 USER node
+
 WORKDIR /app
 
 ENV NODE_ENV=production
