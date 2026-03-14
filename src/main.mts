@@ -13,6 +13,8 @@ const moduleStartTime = Date.now();
 
 const tellCommandUUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const rmtellCommandUUID = 'b2c3d4e5-f6a7-8901-bcde-f01234567891';
+const tellBroadcastUUID = 'c3d4e5f6-7890-abcd-ef12-34567890abcd';
+const tellBroadcastDisplayName = 'tell';
 
 // Rate limit configuration interface
 interface RateLimitConfig {
@@ -124,12 +126,12 @@ function initDatabase(): void {
     if (!moduleDataPath) {
       throw new Error('MODULE_DATA environment variable not set');
     }
-  
+
     // Ensure the directory exists
     if (!fs.existsSync(moduleDataPath)) {
       fs.mkdirSync(moduleDataPath, { recursive: true });
     }
-  
+
     const dbPath = `${moduleDataPath}/tell.db`;
     db = new Database(dbPath);
 
@@ -189,6 +191,37 @@ const removeTellByIdStmt = db!.prepare(`
   DELETE FROM tells WHERE id = @id
 `);
 
+// Function to register the tell broadcast with the router
+async function registerTellBroadcast(): Promise<void> {
+  const broadcastRegistration = {
+    type: 'broadcast.register',
+    broadcastUUID: tellBroadcastUUID,
+    broadcastDisplayName: tellBroadcastDisplayName,
+    platform: '.*', // Match all platforms
+    network: '.*', // Match all networks
+    instance: '.*', // Match all instances
+    channel: '.*', // Match all channels
+    user: '.*', // Match all users
+    messageFilterRegex: '.*', // Match all messages
+    ttl: 120000, // 2 minutes TTL
+  };
+
+  try {
+    await nats.publish(
+      'broadcast.register',
+      JSON.stringify(broadcastRegistration)
+    );
+    log.info('Registered tell broadcast with router', {
+      producer: 'tell',
+    });
+  } catch (error) {
+    log.error('Failed to register tell broadcast', {
+      producer: 'tell',
+      error: error,
+    });
+  }
+}
+
 // Function to register the tell command with the router
 async function registerTellCommands(): Promise<void> {
   // Default rate limit configuration
@@ -212,7 +245,7 @@ async function registerTellCommands(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: 'tell', // Match tell command with at least one word after
+    regex: 'tell ', // Match tell command with at least one word after
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
@@ -227,7 +260,7 @@ async function registerTellCommands(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: 'rmtell', // Match rmtell command with at least one word after
+    regex: 'rmtell ', // Match rmtell command with at least one word after
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
@@ -252,6 +285,9 @@ async function registerTellCommands(): Promise<void> {
     });
   }
 }
+
+// Register broadcast at startup
+await registerTellBroadcast();
 
 // Register commands at startup
 await registerTellCommands();
@@ -310,6 +346,14 @@ const tellCommandSub = nats.subscribe(
         delivered: 0,
         dateDelivered: null,
       };
+
+      log.info('Saving new tell with ident info', {
+        producer: 'tell',
+        tellId: tellId,
+        fromIdent: data.ident,
+        fromUser: data.user,
+        toUser: toUser,
+      });
 
       addTellStmt.run(newTellData);
 
@@ -440,12 +484,12 @@ const rmtellCommandSub = nats.subscribe(
 natsSubscriptions.push(rmtellCommandSub);
 
 // Subscribe to broadcast messages to check for users with pending tells
-const messageBroadcastSub = nats.subscribe(
-  'chat.message.incoming.>',
-  (subject, message) => {
+const tellBroadcastSub = nats.subscribe(
+  `broadcast.message.${tellBroadcastUUID}`,
+  async (subject, message) => {
     try {
       const data = JSON.parse(message.string());
-      log.debug('Received incoming message for tell check', {
+      log.debug('Received broadcast.message for tell', {
         producer: 'tell',
         platform: data.platform,
         instance: data.instance,
@@ -499,14 +543,14 @@ const messageBroadcastSub = nats.subscribe(
         void nats.publish(outgoingTopic, JSON.stringify(response));
       }
     } catch (error) {
-      log.error('Failed to process incoming message for tells', {
+      log.error('Failed to process tell broadcast', {
         producer: 'tell',
-        error: error,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 );
-natsSubscriptions.push(messageBroadcastSub);
+natsSubscriptions.push(tellBroadcastSub);
 
 /**
  * Format time difference in a human-readable way
@@ -564,6 +608,32 @@ const controlSubRegisterCommandAll = nats.subscribe(
   }
 );
 natsSubscriptions.push(controlSubRegisterCommandAll);
+
+// Subscribe to control messages for re-registering broadcasts
+const controlSubRegisterBroadcastTell = nats.subscribe(
+  `control.registerBroadcasts.${tellBroadcastDisplayName}`,
+  () => {
+    log.info(
+      `Received control.registerBroadcasts.${tellBroadcastDisplayName} control message`,
+      {
+        producer: 'tell',
+      }
+    );
+    void registerTellBroadcast();
+  }
+);
+natsSubscriptions.push(controlSubRegisterBroadcastTell);
+
+const controlSubRegisterBroadcastAll = nats.subscribe(
+  'control.registerBroadcasts',
+  () => {
+    log.info('Received control.registerBroadcasts control message', {
+      producer: 'tell',
+    });
+    void registerTellBroadcast();
+  }
+);
+natsSubscriptions.push(controlSubRegisterBroadcastAll);
 
 // Subscribe to stats.uptime messages and respond with module uptime
 const statsUptimeSub = nats.subscribe('stats.uptime', (subject, message) => {
