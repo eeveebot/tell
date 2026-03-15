@@ -12,11 +12,11 @@
     "update-libraries": "ncu -u @eeveebot/libeevee js-yaml undici better-sqlite3 && npm install"
   },
   "dependencies": {
-    "@eeveebot/libeevee": "^3.3.2",
+    "@eeveebot/libeevee": "^3.6.0",
     "better-sqlite3": "^12.8.0",
     "irc-colors": "^1.5.0",
     "js-yaml": "^4.1.1",
-    "undici": "^7.24.2",
+    "undici": "^7.24.3",
     "youtube-node": "^1.3.3"
   },
   "devDependencies": {
