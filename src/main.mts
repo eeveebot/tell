@@ -327,7 +327,7 @@ const tellCommandSub = nats.subscribe(
         platform: data.platform,
         instance: data.instance,
         channel: data.channel,
-        user: data.user,
+        user: data.nick,
         originalText: data.originalText,
       });
 
@@ -339,7 +339,7 @@ const tellCommandSub = nats.subscribe(
           network: data.network,
           instance: data.instance,
           platform: data.platform,
-          text: `${data.user}: Usage: tell <username> <message>`,
+          text: `${data.nick}: Usage: tell <username> <message>`,
           trace: data.trace,
           type: 'message.outgoing',
         };
@@ -375,7 +375,7 @@ const tellCommandSub = nats.subscribe(
         fromConnector: data.replyTo,
         fromChannel: data.channel,
         fromIdent: constructedIdent,
-        fromUser: data.user,
+        fromUser: data.nick,
         toUser: toUser,
         platform: data.platform,
         message: messageText,
@@ -388,7 +388,7 @@ const tellCommandSub = nats.subscribe(
         producer: 'tell',
         tellId: tellId,
         fromIdent: constructedIdent,
-        fromUser: data.user,
+        fromUser: data.nick,
         toUser: toUser,
       });
 
@@ -400,7 +400,7 @@ const tellCommandSub = nats.subscribe(
         network: data.network,
         instance: data.instance,
         platform: data.platform,
-        text: `${data.user}: Message to ${toUser} saved! (ID: ${tellId})`,
+        text: `${data.nick}: Message to ${toUser} saved! (ID: ${tellId})`,
         trace: data.trace,
         type: 'message.outgoing',
       };
@@ -428,7 +428,7 @@ const rmtellCommandSub = nats.subscribe(
         platform: data.platform,
         instance: data.instance,
         channel: data.channel,
-        user: data.user,
+        user: data.nick,
         originalText: data.originalText,
       });
 
@@ -440,7 +440,7 @@ const rmtellCommandSub = nats.subscribe(
           network: data.network,
           instance: data.instance,
           platform: data.platform,
-          text: `${data.user}: Usage: rmtell <id>`,
+          text: `${data.nick}: Usage: rmtell <id>`,
           trace: data.trace,
           type: 'message.outgoing',
         };
@@ -467,7 +467,7 @@ const rmtellCommandSub = nats.subscribe(
           network: data.network,
           instance: data.instance,
           platform: data.platform,
-          text: `${data.user}: Message with ID ${tellId} was not found`,
+          text: `${data.nick}: Message with ID ${tellId} was not found`,
           trace: data.trace,
           type: 'message.outgoing',
         };
@@ -495,12 +495,12 @@ const rmtellCommandSub = nats.subscribe(
 
       // Check if the user is the original sender
       // Also check if the username matches as a fallback
-      if (constructedIdent !== tell.fromIdent && data.user !== tell.fromUser) {
+      if (constructedIdent !== tell.fromIdent && data.nick !== tell.fromUser) {
         log.info('Ident mismatch in rmtell - access denied', {
           producer: 'tell',
           currentIdent: constructedIdent,
           storedIdent: tell.fromIdent,
-          currentUser: data.user,
+          currentUser: data.nick,
           storedUser: tell.fromUser,
           tellId: tellId,
           userHost: data.userHost,
@@ -511,7 +511,7 @@ const rmtellCommandSub = nats.subscribe(
           network: data.network,
           instance: data.instance,
           platform: data.platform,
-          text: `${data.user}: Message with ID ${tellId} was not sent by you`,
+          text: `${data.nick}: Message with ID ${tellId} was not sent by you`,
           trace: data.trace,
           type: 'message.outgoing',
         };
@@ -539,7 +539,7 @@ const rmtellCommandSub = nats.subscribe(
         network: data.network,
         instance: data.instance,
         platform: data.platform,
-        text: `${data.user}: Message with ID ${tellId} deleted`,
+        text: `${data.nick}: Message with ID ${tellId} deleted`,
         trace: data.trace,
         type: 'message.outgoing',
       };
@@ -567,13 +567,13 @@ const listtellsCommandSub = nats.subscribe(
         platform: data.platform,
         instance: data.instance,
         channel: data.channel,
-        user: data.user,
+        user: data.nick,
         originalText: data.originalText,
       });
 
       // Find all outgoing tells from this user
       const outgoingTells = findOutgoingTellsByUserStmt.all({
-        user: data.user,
+        user: data.nick,
       }) as Array<{
         id: string;
         toUser: string;
@@ -588,7 +588,7 @@ const listtellsCommandSub = nats.subscribe(
           network: data.network,
           instance: data.instance,
           platform: data.platform,
-          text: `${data.user}: You have no outgoing tells.`,
+          text: `${data.nick}: You have no outgoing tells.`,
           trace: data.trace,
           type: 'message.outgoing',
         };
@@ -598,7 +598,7 @@ const listtellsCommandSub = nats.subscribe(
         return;
       }
 
-      let responseText = `${data.user}: Your outgoing tells:\n`;
+      let responseText = `${data.nick}: Your outgoing tells:\n`;
 
       for (let i = 0; i < outgoingTells.length; i++) {
         const tell = outgoingTells[i];
@@ -643,11 +643,11 @@ const tellBroadcastSub = nats.subscribe(
         platform: data.platform,
         instance: data.instance,
         channel: data.channel,
-        user: data.user,
+        user: data.nick,
       });
 
       // Check if this user has any pending tells
-      const lowercaseNick = data.user.toLowerCase();
+      const lowercaseNick = data.nick.toLowerCase();
       const identWithNick = `${lowercaseNick}@${data.ident}`;
 
       // Check for both nick and nick@ident matches in a single query
@@ -672,7 +672,7 @@ const tellBroadcastSub = nats.subscribe(
           // Format the time difference
           const timeDiff = formatTimeDifference(tell.dateSent);
 
-          responseText += `${data.user}: ${tell.fromUser}, ${timeDiff} ago: ${tell.message}\n`;
+          responseText += `${data.nick}: ${tell.fromUser}, ${timeDiff} ago: ${tell.message}\n`;
 
           // Mark as delivered
           markAsDeliveredStmt.run({
