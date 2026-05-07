@@ -6,6 +6,7 @@
 import { NatsClient, log, createNatsConnection, registerGracefulShutdown, createModuleMetrics, loadModuleConfig, RateLimitConfig, defaultRateLimit, registerCommand, sendChatMessage, registerHelp, HelpEntry,
   registerStatsHandlers
 } from '@eeveebot/libeevee';
+import fs from 'node:fs';
 import Database from 'better-sqlite3';
 
 // Record module startup time for uptime tracking
