@@ -3,9 +3,9 @@
 // Tell module
 // Fancy text-based answering machine
 
-import fs from 'node:fs';
-import * as yaml from 'js-yaml';
-import { NatsClient, log } from '@eeveebot/libeevee';
+import { NatsClient, log, createNatsConnection, registerGracefulShutdown, createModuleMetrics, loadModuleConfig, RateLimitConfig, defaultRateLimit, registerCommand, sendChatMessage, registerHelp, HelpEntry,
+  registerStatsHandlers
+} from '@eeveebot/libeevee';
 import Database from 'better-sqlite3';
 
 // Record module startup time for uptime tracking
@@ -17,19 +17,13 @@ const listtellsCommandUUID = 'bd15d52f-8bbb-4b93-ac4b-4533f65b2062';
 const tellBroadcastUUID = '69b5b61b-2bc8-4d62-95cb-799c24e156d3';
 const tellBroadcastDisplayName = 'tell';
 
-// Rate limit configuration interface
-interface RateLimitConfig {
-  mode: 'enqueue' | 'drop';
-  level: 'channel' | 'user' | 'global';
-  limit: number;
-  interval: string; // e.g., "30s", "1m", "5m"
-}
-
 // Tell module configuration interface
 interface TellConfig {
   ratelimit?: RateLimitConfig;
   dbPath?: string;
 }
+
+const metrics = createModuleMetrics('tell');
 
 const natsClients: InstanceType<typeof NatsClient>[] = [];
 const natsSubscriptions: Array<Promise<string | boolean>> = [];
@@ -37,88 +31,17 @@ const natsSubscriptions: Array<Promise<string | boolean>> = [];
 // Database instance
 let db: Database.Database | null = null;
 
-/**
- * Load tell configuration from YAML file
- * @returns TellConfig parsed from YAML file
- */
-function loadTellConfig(): TellConfig {
-  // Get the config file path from environment variable
-  const configPath = process.env.MODULE_CONFIG_PATH;
-  if (!configPath) {
-    log.warn('MODULE_CONFIG_PATH not set, using default config', {
-      producer: 'tell',
-    });
-    return {};
-  }
 
-  try {
-    // Read the YAML file
-    const configFile = fs.readFileSync(configPath, 'utf8');
 
-    // Parse the YAML content
-    const config = yaml.load(configFile) as TellConfig;
-
-    log.info('Loaded tell configuration', {
-      producer: 'tell',
-      configPath,
-    });
-
-    return config;
-  } catch (error) {
-    log.error('Failed to load tell configuration, using defaults', {
-      producer: 'tell',
-      configPath,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {};
-  }
-}
-
-//
-// Do whatever teardown is necessary before calling common handler
-process.on('SIGINT', () => {
-  if (db) {
-    db.close();
-  }
-  natsClients.forEach((natsClient) => {
-    void natsClient.drain();
-  });
+registerGracefulShutdown(natsClients, async () => {
+  if (db) db.close();
 });
 
-process.on('SIGTERM', () => {
-  if (db) {
-    db.close();
-  }
-  natsClients.forEach((natsClient) => {
-    void natsClient.drain();
-  });
-});
-
-//
-// Setup NATS connection
-
-// Get host and token
-const natsHost = process.env.NATS_HOST || false;
-if (!natsHost) {
-  const msg = 'environment variable NATS_HOST is not set.';
-  throw new Error(msg);
-}
-
-const natsToken = process.env.NATS_TOKEN || false;
-if (!natsToken) {
-  const msg = 'environment variable NATS_TOKEN is not set.';
-  throw new Error(msg);
-}
-
-const nats = new NatsClient({
-  natsHost: natsHost as string,
-  natsToken: natsToken as string,
-});
+const nats = await createNatsConnection();
 natsClients.push(nats);
-await nats.connect();
 
 // Load configuration at startup
-const tellConfig = loadTellConfig();
+const tellConfig = loadModuleConfig<TellConfig>({});
 
 // Initialize database
 function initDatabase(): void {
@@ -227,94 +150,40 @@ async function registerTellBroadcast(): Promise<void> {
   }
 }
 
-// Function to register the tell command with the router
-async function registerTellCommands(): Promise<void> {
-  // Default rate limit configuration
-  const defaultRateLimit = {
-    mode: 'drop',
-    level: 'user',
-    limit: 5,
-    interval: '1m',
-  };
+// Register tell commands using registerCommand helper
+const rateLimitConfig = tellConfig.ratelimit || defaultRateLimit;
 
-  // Use configured rate limit or default
-  const rateLimitConfig = tellConfig.ratelimit || defaultRateLimit;
+const tellCmdSubs = await registerCommand(nats, {
+  commandUUID: tellCommandUUID,
+  commandDisplayName: 'tell',
+  regex: '^tell\\s+',
+  platformPrefixAllowed: true,
+  ratelimit: rateLimitConfig,
+}, metrics);
+natsSubscriptions.push(...tellCmdSubs);
 
-  // Register tell command
-  const tellCommandRegistration = {
-    type: 'command.register',
-    commandUUID: tellCommandUUID,
-    commandDisplayName: 'tell',
-    platform: '.*', // Match all platforms
-    network: '.*', // Match all networks
-    instance: '.*', // Match all instances
-    channel: '.*', // Match all channels
-    user: '.*', // Match all users
-    regex: '^tell\\s+', // Match tell command at start of line followed by whitespace
-    platformPrefixAllowed: true,
-    ratelimit: rateLimitConfig,
-  };
+const rmtellCmdSubs = await registerCommand(nats, {
+  commandUUID: rmtellCommandUUID,
+  commandDisplayName: 'rmtell',
+  regex: '^rmtell\\s+',
+  platformPrefixAllowed: true,
+  ratelimit: rateLimitConfig,
+}, metrics);
+natsSubscriptions.push(...rmtellCmdSubs);
 
-  // Register rmtell command
-  const rmtellCommandRegistration = {
-    type: 'command.register',
-    commandUUID: rmtellCommandUUID,
-    commandDisplayName: 'rmtell',
-    platform: '.*', // Match all platforms
-    network: '.*', // Match all networks
-    instance: '.*', // Match all instances
-    channel: '.*', // Match all channels
-    user: '.*', // Match all users
-    regex: '^rmtell\\s+', // Match rmtell command at start of line followed by whitespace
-    platformPrefixAllowed: true,
-    ratelimit: rateLimitConfig,
-  };
-
-  // Register list-tells command
-  const listtellsCommandRegistration = {
-    type: 'command.register',
-    commandUUID: listtellsCommandUUID,
-    commandDisplayName: 'list-tells',
-    platform: '.*', // Match all platforms
-    network: '.*', // Match all networks
-    instance: '.*', // Match all instances
-    channel: '.*', // Match all channels
-    user: '.*', // Match all users
-    regex: '^list-tells\\s*', // Match list-tells command at start of line
-    platformPrefixAllowed: true,
-    ratelimit: rateLimitConfig,
-  };
-
-  try {
-    await nats.publish(
-      'command.register',
-      JSON.stringify(tellCommandRegistration)
-    );
-    await nats.publish(
-      'command.register',
-      JSON.stringify(rmtellCommandRegistration)
-    );
-    await nats.publish(
-      'command.register',
-      JSON.stringify(listtellsCommandRegistration)
-    );
-    log.info('Registered tell, rmtell, and list-tells commands with router', {
-      producer: 'tell',
-      ratelimit: rateLimitConfig,
-    });
-  } catch (error) {
-    log.error('Failed to register tell commands', {
-      producer: 'tell',
-      error: error,
-    });
-  }
-}
+const listtellsCmdSubs = await registerCommand(nats, {
+  commandUUID: listtellsCommandUUID,
+  commandDisplayName: 'list-tells',
+  regex: '^list-tells\\s*',
+  platformPrefixAllowed: true,
+  ratelimit: rateLimitConfig,
+}, metrics);
+natsSubscriptions.push(...listtellsCmdSubs);
 
 // Register broadcast at startup
 await registerTellBroadcast();
 
-// Register commands at startup
-await registerTellCommands();
+
 
 // Subscribe to tell command execution messages
 const tellCommandSub = nats.subscribe(
@@ -334,18 +203,14 @@ const tellCommandSub = nats.subscribe(
       // Parse the command: tell <username> <message>
       const parts = data.text.trim().split(/\s+/);
       if (parts.length < 2) {
-        const errorMsg = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: `${data.nick}: Usage: tell <username> <message>`,
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
+        }, metrics);
         return;
       }
 
@@ -395,18 +260,14 @@ const tellCommandSub = nats.subscribe(
       addTellStmt.run(newTellData);
 
       // Send confirmation message
-      const response = {
+      void sendChatMessage(nats, {
         channel: data.channel,
         network: data.network,
         instance: data.instance,
         platform: data.platform,
         text: `${data.nick}: Message to ${toUser} saved! (ID: ${tellId})`,
         trace: data.trace,
-        type: 'message.outgoing',
-      };
-
-      const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-      void nats.publish(outgoingTopic, JSON.stringify(response));
+      }, metrics);
     } catch (error) {
       log.error('Failed to process tell command', {
         producer: 'tell',
@@ -435,18 +296,14 @@ const rmtellCommandSub = nats.subscribe(
       // Parse the command: rmtell <id>
       const parts = data.text.trim().split(/\s+/);
       if (parts.length < 1) {
-        const errorMsg = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: `${data.nick}: Usage: rmtell <id>`,
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
+        }, metrics);
         return;
       }
 
@@ -462,18 +319,14 @@ const rmtellCommandSub = nats.subscribe(
         | undefined;
 
       if (!tell) {
-        const errorMsg = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: `${data.nick}: Message with ID ${tellId} was not found`,
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
+        }, metrics);
         return;
       }
 
@@ -506,18 +359,14 @@ const rmtellCommandSub = nats.subscribe(
           userHost: data.userHost,
           dataIdent: data.ident,
         });
-        const errorMsg = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: `${data.nick}: Message with ID ${tellId} was not sent by you`,
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(errorMsg));
+        }, metrics);
         return;
       }
 
@@ -534,18 +383,14 @@ const rmtellCommandSub = nats.subscribe(
       removeTellByIdStmt.run({ id: tellId });
 
       // Send confirmation message
-      const response = {
+      void sendChatMessage(nats, {
         channel: data.channel,
         network: data.network,
         instance: data.instance,
         platform: data.platform,
         text: `${data.nick}: Message with ID ${tellId} deleted`,
         trace: data.trace,
-        type: 'message.outgoing',
-      };
-
-      const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-      void nats.publish(outgoingTopic, JSON.stringify(response));
+      }, metrics);
     } catch (error) {
       log.error('Failed to process rmtell command', {
         producer: 'tell',
@@ -583,18 +428,14 @@ const listtellsCommandSub = nats.subscribe(
 
       // Send the list of tells to the user
       if (outgoingTells.length === 0) {
-        const response = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: `${data.nick}: You have no outgoing tells.`,
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(response));
+        }, metrics);
         return;
       }
 
@@ -610,18 +451,14 @@ const listtellsCommandSub = nats.subscribe(
       }
 
       // Send the tells to the channel
-      const response = {
+      void sendChatMessage(nats, {
         channel: data.channel,
         network: data.network,
         instance: data.instance,
         platform: data.platform,
         text: responseText.trim(),
         trace: data.trace,
-        type: 'message.outgoing',
-      };
-
-      const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-      void nats.publish(outgoingTopic, JSON.stringify(response));
+      }, metrics);
     } catch (error) {
       log.error('Failed to process list-tells command', {
         producer: 'tell',
@@ -682,18 +519,14 @@ const tellBroadcastSub = nats.subscribe(
         }
 
         // Send the tells to the channel
-        const response = {
+        void sendChatMessage(nats, {
           channel: data.channel,
           network: data.network,
           instance: data.instance,
           platform: data.platform,
           text: responseText.trim(),
           trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(response));
+        }, metrics);
       }
     } catch (error) {
       log.error('Failed to process tell broadcast', {
@@ -728,52 +561,9 @@ function formatTimeDifference(date: string): string {
   }
 }
 
-// Subscribe to control messages for re-registering commands
-const controlSubRegisterCommandTell = nats.subscribe(
-  'control.registerCommands.tell',
-  () => {
-    log.info('Received control.registerCommands.tell control message', {
-      producer: 'tell',
-    });
-    void registerTellCommands();
-  }
-);
-natsSubscriptions.push(controlSubRegisterCommandTell);
+// Control subscriptions for re-registering commands are now handled by registerCommand()
 
-const controlSubRegisterCommandRmtell = nats.subscribe(
-  'control.registerCommands.rmtell',
-  () => {
-    log.info('Received control.registerCommands.rmtell control message', {
-      producer: 'tell',
-    });
-    void registerTellCommands();
-  }
-);
-natsSubscriptions.push(controlSubRegisterCommandRmtell);
-
-const controlSubRegisterCommandListtells = nats.subscribe(
-  'control.registerCommands.list-tells',
-  () => {
-    log.info('Received control.registerCommands.list-tells control message', {
-      producer: 'tell',
-    });
-    void registerTellCommands();
-  }
-);
-natsSubscriptions.push(controlSubRegisterCommandListtells);
-
-const controlSubRegisterCommandAll = nats.subscribe(
-  'control.registerCommands',
-  () => {
-    log.info('Received control.registerCommands control message', {
-      producer: 'tell',
-    });
-    void registerTellCommands();
-  }
-);
-natsSubscriptions.push(controlSubRegisterCommandAll);
-
-// Subscribe to control messages for re-registering broadcasts
+// Control subscriptions for re-registering broadcasts are still manual (no helper yet)
 const controlSubRegisterBroadcastTell = nats.subscribe(
   `control.registerBroadcasts.${tellBroadcastDisplayName}`,
   () => {
@@ -799,39 +589,12 @@ const controlSubRegisterBroadcastAll = nats.subscribe(
 );
 natsSubscriptions.push(controlSubRegisterBroadcastAll);
 
-// Subscribe to stats.uptime messages and respond with module uptime
-const statsUptimeSub = nats.subscribe('stats.uptime', (subject, message) => {
-  try {
-    const data = JSON.parse(message.string());
-    log.info('Received stats.uptime request', {
-      producer: 'tell',
-      replyChannel: data.replyChannel,
-    });
-
-    // Calculate uptime in milliseconds
-    const uptime = Date.now() - moduleStartTime;
-
-    // Send uptime back via the ephemeral reply channel
-    const uptimeResponse = {
-      module: 'tell',
-      uptime: uptime,
-      uptimeFormatted: `${Math.floor(uptime / 86400000)}d ${Math.floor((uptime % 86400000) / 3600000)}h ${Math.floor((uptime % 3600000) / 60000)}m ${Math.floor((uptime % 60000) / 1000)}s`,
-    };
-
-    if (data.replyChannel) {
-      void nats.publish(data.replyChannel, JSON.stringify(uptimeResponse));
-    }
-  } catch (error) {
-    log.error('Failed to process stats.uptime request', {
-      producer: 'tell',
-      error: error,
-    });
-  }
-});
-natsSubscriptions.push(statsUptimeSub);
+// Subscribe to stats.uptime and stats.emit.request
+const statsSubs = registerStatsHandlers({ nats, moduleName: 'tell', startTime: moduleStartTime, metrics });
+natsSubscriptions.push(...statsSubs);
 
 // Help information for tell commands
-const tellHelp = [
+const tellHelp: HelpEntry[] = [
   {
     command: 'tell',
     descr:
@@ -868,34 +631,6 @@ const tellHelp = [
   },
 ];
 
-// Function to publish help information
-async function publishHelp(): Promise<void> {
-  const helpUpdate = {
-    from: 'tell',
-    help: tellHelp,
-  };
-
-  try {
-    await nats.publish('help.update', JSON.stringify(helpUpdate));
-    log.info('Published tell help information', {
-      producer: 'tell',
-    });
-  } catch (error) {
-    log.error('Failed to publish tell help information', {
-      producer: 'tell',
-      error: error,
-    });
-  }
-}
-
-// Publish help information at startup
-await publishHelp();
-
-// Subscribe to help update requests
-const helpUpdateRequestSub = nats.subscribe('help.updateRequest', () => {
-  log.info('Received help.updateRequest message', {
-    producer: 'tell',
-  });
-  void publishHelp();
-});
-natsSubscriptions.push(helpUpdateRequestSub);
+// Register help using registerHelp helper (publishes immediately + subscribes to update requests)
+const helpSubs = await registerHelp(nats, 'tell', tellHelp, metrics);
+natsSubscriptions.push(...helpSubs);
