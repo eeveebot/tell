@@ -4,7 +4,9 @@
 // Fancy text-based answering machine
 
 import { NatsClient, log, createNatsConnection, registerGracefulShutdown, createModuleMetrics, loadModuleConfig, RateLimitConfig, defaultRateLimit, registerCommand, sendChatMessage, registerHelp, HelpEntry,
-  registerStatsHandlers
+  registerStatsHandlers,
+  initializeSystemMetrics,
+  setupHttpServer,
 } from '@eeveebot/libeevee';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
@@ -28,6 +30,16 @@ const metrics = createModuleMetrics('tell');
 
 const natsClients: InstanceType<typeof NatsClient>[] = [];
 const natsSubscriptions: Array<Promise<string | boolean>> = [];
+
+// Initialize system metrics
+initializeSystemMetrics('tell');
+
+// Setup HTTP server for metrics and health checks
+setupHttpServer({
+  port: process.env.HTTP_API_PORT || '9000',
+  serviceName: 'tell',
+  natsClients: natsClients,
+});
 
 // Database instance
 let db: Database.Database | null = null;
