@@ -5,6 +5,7 @@
 
 import { NatsClient, log, createNatsConnection, registerGracefulShutdown, createModuleMetrics, loadModuleConfig, RateLimitConfig, defaultRateLimit, registerCommand, sendChatMessage, registerHelp, HelpEntry,
   registerStatsHandlers,
+  registerBroadcast,
   initializeSystemMetrics,
   setupHttpServer,
 } from '@eeveebot/libeevee';
@@ -132,36 +133,12 @@ const removeTellByIdStmt = db!.prepare(`
   DELETE FROM tells WHERE id = @id
 `);
 
-// Function to register the tell broadcast with the router
-async function registerTellBroadcast(): Promise<void> {
-  const broadcastRegistration = {
-    type: 'broadcast.register',
-    broadcastUUID: tellBroadcastUUID,
-    broadcastDisplayName: tellBroadcastDisplayName,
-    platform: '.*', // Match all platforms
-    network: '.*', // Match all networks
-    instance: '.*', // Match all instances
-    channel: '.*', // Match all channels
-    user: '.*', // Match all users
-    messageFilterRegex: '.*', // Match all messages
-    ttl: 120000, // 2 minutes TTL
-  };
-
-  try {
-    await nats.publish(
-      'broadcast.register',
-      JSON.stringify(broadcastRegistration)
-    );
-    log.info('Registered tell broadcast with router', {
-      producer: 'tell',
-    });
-  } catch (error) {
-    log.error('Failed to register tell broadcast', {
-      producer: 'tell',
-      error: error,
-    });
-  }
-}
+// Register broadcast at startup using registerBroadcast helper
+const tellBroadcastSubs = await registerBroadcast(nats, {
+  broadcastUUID: tellBroadcastUUID,
+  broadcastDisplayName: tellBroadcastDisplayName,
+}, metrics);
+natsSubscriptions.push(...tellBroadcastSubs);
 
 // Register tell commands using registerCommand helper
 const rateLimitConfig = tellConfig.ratelimit || defaultRateLimit;
@@ -194,7 +171,11 @@ const listtellsCmdSubs = await registerCommand(nats, {
 natsSubscriptions.push(...listtellsCmdSubs);
 
 // Register broadcast at startup
-await registerTellBroadcast();
+const tellBroadcastRegSubs = await registerBroadcast(nats, {
+  broadcastUUID: tellBroadcastUUID,
+  broadcastDisplayName: tellBroadcastDisplayName,
+}, metrics);
+natsSubscriptions.push(...tellBroadcastRegSubs);
 
 
 
@@ -575,32 +556,7 @@ function formatTimeDifference(date: string): string {
 }
 
 // Control subscriptions for re-registering commands are now handled by registerCommand()
-
-// Control subscriptions for re-registering broadcasts are still manual (no helper yet)
-const controlSubRegisterBroadcastTell = nats.subscribe(
-  `control.registerBroadcasts.${tellBroadcastDisplayName}`,
-  () => {
-    log.info(
-      `Received control.registerBroadcasts.${tellBroadcastDisplayName} control message`,
-      {
-        producer: 'tell',
-      }
-    );
-    void registerTellBroadcast();
-  }
-);
-natsSubscriptions.push(controlSubRegisterBroadcastTell);
-
-const controlSubRegisterBroadcastAll = nats.subscribe(
-  'control.registerBroadcasts',
-  () => {
-    log.info('Received control.registerBroadcasts control message', {
-      producer: 'tell',
-    });
-    void registerTellBroadcast();
-  }
-);
-natsSubscriptions.push(controlSubRegisterBroadcastAll);
+// Control subscriptions for re-registering broadcasts are now handled by registerBroadcast()
 
 // Subscribe to stats.uptime and stats.emit.request
 const statsSubs = registerStatsHandlers({ nats, moduleName: 'tell', startTime: moduleStartTime, metrics });
