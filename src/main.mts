@@ -8,6 +8,7 @@ import { NatsClient, log, createNatsConnection, registerGracefulShutdown, create
   registerBroadcast,
   initializeSystemMetrics,
   setupHttpServer,
+  NatsSubscriptionResult,
 } from '@eeveebot/libeevee';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
@@ -30,7 +31,7 @@ interface TellConfig {
 const metrics = createModuleMetrics('tell');
 
 const natsClients: InstanceType<typeof NatsClient>[] = [];
-const natsSubscriptions: Array<Promise<string | boolean>> = [];
+const natsSubscriptions: Array<Promise<NatsSubscriptionResult>> = [];
 
 // Initialize system metrics
 initializeSystemMetrics('tell');
