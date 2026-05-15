@@ -12,7 +12,7 @@
     "update-libraries": "ncu -u @eeveebot/libeevee undici better-sqlite3 && npm install"
   },
   "dependencies": {
-    "@eeveebot/libeevee": "^4.2.2",
+    "@eeveebot/libeevee": "^4.2.5",
     "better-sqlite3": "^12.8.0"
   },
   "devDependencies": {
