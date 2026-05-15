@@ -19,13 +19,9 @@ ENV NODE_ENV=development
 
 RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
   set -exu \
-  && echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" | tee -a .npmrc
-
-RUN set -exu \
   && cd /build \
   && npm install --include=dev \
-  && npm run build \
-  && rm -f .npmrc
+  && npm run build
 
 FROM docker.io/node:24-alpine
 
@@ -39,7 +35,6 @@ RUN set -exu \
     g++
 
 USER node
-
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -47,13 +42,7 @@ ENV NODE_ENV=production
 COPY --chown=node:node package.json package-lock.json .npmrc /app/
 
 RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
-  set -exu \
-  && echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" | tee -a .npmrc
-
-RUN set -exu \
-  && cd /app \
-  && npm install \
-  && rm -f .npmrc
+  npm install
 
 COPY --from=builder /build/dist /app/dist
 
