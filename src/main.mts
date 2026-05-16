@@ -15,7 +15,7 @@ import Database from 'better-sqlite3';
 
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
-const moduleVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
+const moduleVersion = JSON.parse(fs.readFileSync(new URL('package.json', 'file://' + process.cwd() + '/'), 'utf8')).version as string;
 
 const tellCommandUUID = '8626542f-7154-42ed-8fc4-3817fe912959';
 const rmtellCommandUUID = 'db53b187-1f37-43e9-b9bb-ddaa7b1a1eb8';
